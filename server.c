@@ -52,25 +52,30 @@ int main(int argc, char *argv[]) {
 
     struct option options[] = {
         {"port", required_argument, NULL, 'p'},
+        {"compress", no_argument, NULL, 'c'},
         {0, 0, 0, 0}};
 
     int opt;
     int portOpt = 0;
+    int compressOpt = 0;
 
-    while ((opt = getopt_long(argc, argv, "p:", options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:c", options, NULL)) != -1) {
         switch (opt) {
         case 'p':
             portno = atoi(optarg);
             portOpt = 1;
             break;
+        case 'c':
+            compressOpt = 1;
+            break;
         default:
-            fprintf(stderr, "Incorrect argument: correct usage is ./server --port=portno\n");
+            fprintf(stderr, "Incorrect argument: correct usage is ./server --port=portno [--compress]\n");
             exit(1);
         }
     }
 
     if (!portOpt) {
-        fprintf(stderr, "Incorrect argument: correct usage is ./server --port=portno\n");
+        fprintf(stderr, "Incorrect argument: correct usage is ./server --port=portno [--compress]\n");
         fprintf(stderr, "port not specified\n");
         exit(1);
     }
