@@ -1,51 +1,7 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <poll.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/wait.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
+#include "server.h"
 
-#define CHUNK     256
-#define NO_FLUSH    0
-#define FINISH      4
-
-pid_t pid;
-int fd0[2], fd1[2];
-int socket_fd, new_socket;
-
-void error(const char *string) {
-    perror(string);
-    exit(1);
-}
-
-void shutdown_socket() {
-    close(new_socket);
-    shutdown(socket_fd, SHUT_RDWR);
-    close(socket_fd);
-}
-
-void sig_handler(int sig) {
-    if (sig == SIGPIPE) {
-        fprintf(stderr, "SIGPIPE received!\n");
-        exit(0);
-    }
-
-    if (sig == SIGINT) {
-        fprintf(stderr, "SIGINT received!\n");
-        if (kill(pid, SIGINT) < 0) {
-            fprintf(stderr, "Failed to kill process: Error:%d, Message: %s\n", errno, strerror(errno));
-            exit(1);
-        }
-    }
-}
-
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 
     int portno, clilen;
     struct sockaddr_in serv_addr, cli_addr;
@@ -143,48 +99,15 @@ int main(int argc, char *argv[]) {
         fds[1].fd = fd1[0];
         fds[1].events = POLLIN | POLLHUP | POLLERR;
 
-        char in[CHUNK + 1];
-        // char out[CHUNK + 1];
-        char carriage[2] = {'\r', '\n'};
-        ssize_t ret;
-
         for (;;) {
 
             poll(fds, 2, 0);
 
             if (fds[0].revents & POLLIN) {
-                memset(in, 0, CHUNK);
-                ret = recv(new_socket, in, CHUNK, 0);
-                if (ret < 0)
-                    error("ERROR reading from new_socket");
-                in[ret] = 0x00;
-
-                for (int i = 0; i < ret; i++) {
-                    char curr = in[i];
-                    switch (curr) {
-                    case '\r':
-                    case '\n':
-                        write(fd0[1], &carriage[1], sizeof(char));
-                        break;
-                    case 0x03:
-                        fprintf(stderr, "SIGINT received\n");
-                        if (kill(pid, SIGINT) < 0) {
-                            fprintf(stderr, "Failed to kill process: Error:%d, Message: %s\n", errno, strerror(errno));
-                            exit(1);
-                        }
-                        exit(1);
-                        break;
-                    case 0x04:
-                        fprintf(stderr, "SIGPIPE received\n");
-                        shutdown(new_socket, SHUT_RD);
-                        close(fd0[1]);
-                        // exit(0);
-                        break;
-                    default:
-                        write(fd0[1], &curr, sizeof(char));
-                        break;
-                    }
-                }
+                int ret;
+                ret = pipe_to_bash(new_socket, fd0[1], compressOpt);
+                if (ret != Z_OK)
+                    exit(ret);
             }
 
             if (fds[0].revents & (POLLHUP | POLLERR)) {
@@ -192,17 +115,10 @@ int main(int argc, char *argv[]) {
             }
 
             if (fds[1].revents & POLLIN) {
-                int flush;
-                do {
-                    memset(in, 0, CHUNK);
-                    ret = read(fd1[0], in, CHUNK);
-                    if (ret < 0)
-                        error("ERROR reading from pipe");
-                    in[ret] = 0x00;
-                    flush = ret != CHUNK ? FINISH : NO_FLUSH;
-
-                    send(new_socket, in, ret, 0);
-                } while (flush != FINISH);
+                int ret;
+                ret = pipe_to_server(fd1[0], new_socket, compressOpt);
+                if (ret != Z_OK)
+                    exit(ret);
             }
 
             if (fds[1].revents & (POLLHUP | POLLERR)) {
